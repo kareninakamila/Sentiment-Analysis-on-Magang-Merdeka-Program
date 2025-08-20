@@ -1,10 +1,9 @@
 streamlit 
 pandas 
-matplotlib 
-wordcloud 
-scikit-learn 
-seaborn 
-vaderSentiment 
+matplotlib.pyplot
+seaborn
+wordcloud  
 transformers 
-emoji 
-nltk
+torch
+bertopic 
+sentence_transformers 

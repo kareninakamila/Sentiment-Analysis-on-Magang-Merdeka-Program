@@ -1,123 +1,156 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-from wordcloud import WordCloud
-from sklearn.feature_extraction.text import CountVectorizer
 import seaborn as sns
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
-import re
-import string
-import emoji
-import nltk
-from nltk.corpus import stopwords
+from wordcloud import WordCloud
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import torch
+from bertopic import BERTopic
+from sentence_transformers import SentenceTransformer
 
-# Install required packages (Run only once)
-# pip install streamlit pandas matplotlib wordcloud scikit-learn seaborn vaderSentiment transformers emoji nltk
-
-# Set up Streamlit
-st.title("Twitter Sentiment Analysis and Visualization")
+# --------------------
+# App header
+# --------------------
+st.title("Twitter Sentiment and Topic Modeling")
 st.sidebar.header("Settings")
 
-# File upload
-uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"])
+# Upload CSV
+uploaded_file = st.sidebar.file_uploader("Upload your labeled CSV file", type=["csv"])
 
-if uploaded_file is not None:
-    data = pd.read_csv(uploaded_file)
-    st.write("Data Loaded Successfully", data.head())
+# --------------------
+# Load Model and Tokenizer for Sentiment Classification
+# --------------------
+model_name = "taufiqdp/indonesian-sentiment"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForSequenceClassification.from_pretrained(model_name)
+model.to(device)
 
-    # Clean the text
-    def clean_text_without_tokenization(text):
-        text = emoji.demojize(text)
-        text = text.lower()
-        text = re.sub(r'http\S+|www\S+|https\S+', '', text)  # Remove URLs
-        text = re.sub(r'@[\w]+', '', text)  # Remove mentions
-        text = re.sub(r'[^\x00-\x7F]+', '', text)  # Remove non-ASCII characters
-        text = text.translate(str.maketrans('', '', string.punctuation))  # Remove punctuation
-        stop_words_id = set(stopwords.words('indonesian'))
-        text = ' '.join([word for word in text.split() if word not in stop_words_id])  # Remove stopwords
-        return text
+# --------------------
+# Sentiment Classification Function
+# --------------------
+def classify_sentiment(tweet):
+    if pd.isna(tweet):
+        return None
+    tweet = str(tweet)
+    inputs = tokenizer(tweet, return_tensors="pt", truncation=True, padding=True, max_length=512).to(device)
+    
+    with torch.no_grad():
+        logits = model(**inputs).logits
 
-    data['Cleaned_Tweet_Content'] = data['Tweet_Content'].apply(clean_text_without_tokenization)
+    predicted_class = torch.argmax(logits, dim=-1).item()
+    sentiments = ["negative", "neutral", "positive"]
+    return sentiments[predicted_class]
 
-    st.subheader("Cleaned Tweet Data")
-    st.write(data[['Tweet_Content', 'Cleaned_Tweet_Content']].head())
-
-    # WordCloud Visualization
-    all_tweets = " ".join(data['Cleaned_Tweet_Content'].dropna().astype(str))
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(all_tweets)
-
-    st.subheader("WordCloud of Tweets")
-    st.image(wordcloud.to_image())
-
-    # Sentiment Analysis using VADER
-    analyzer = SentimentIntensityAnalyzer()
-
-    def vader_sentiment(tweet):
-        vader_score = analyzer.polarity_scores(tweet)['compound']
-        if vader_score > 0.005:
-            return 'positive'
-        elif vader_score < -0.005:
-            return 'negative'
-        return 'neutral'
-
-    data['Sentiment'] = data['Cleaned_Tweet_Content'].apply(vader_sentiment)
-    st.subheader("Sentiment Distribution")
-    sentiment_counts = data['Sentiment'].value_counts()
-    st.write(sentiment_counts)
-
-    # Sentiment Distribution Plot
-    sentiment_counts.plot(kind='bar', color=['green', 'blue', 'red'], title='Sentiment Distribution')
-    st.pyplot()
-
-    # Model Sentiment Analysis (using IndoBERTweet)
-    model_name = "Aardiiiiy/indobertweet-base-Indonesian-sentiment-analysis"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
-    sentiment_analyzer = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
-
-    def classify_sentiment(text):
-        if pd.isna(text):
-            return None
-        result = sentiment_analyzer(str(text))[0]
-        return result['label']
-
-    data['Model_Sentiment'] = data['Cleaned_Tweet_Content'].apply(classify_sentiment)
-
-    st.subheader("Model Sentiment")
-    st.write(data[['Cleaned_Tweet_Content', 'Sentiment', 'Model_Sentiment']].head())
-
-    # Visualizing Sentiment Analysis Results
-    sentiment_comparison = pd.crosstab(data['Sentiment'], data['Model_Sentiment'])
-    st.subheader("Sentiment Comparison between VADER and Model")
-    st.write(sentiment_comparison)
-
-    # Topic Modeling using BERTopic
-    from bertopic import BERTopic
-    from sentence_transformers import SentenceTransformer
-
+# --------------------
+# BERTopic Setup
+# --------------------
+def apply_bertopic(texts):
+    # Initialize BERTopic and SentenceTransformer
     embedding_model = SentenceTransformer('xlm-r-bert-base-nli-stsb-mean-tokens')
-    topic_model = BERTopic(language="indonesia", calculate_probabilities=True, embedding_model=embedding_model)
+    topic_model = BERTopic(language="indonesia", embedding_model=embedding_model)
+    
+    # Fit the model and transform the texts
+    topics, probabilities = topic_model.fit_transform(texts)
+    
+    # Get Topic Information
+    topic_info = topic_model.get_topic_info()
+    return topic_model, topics, topic_info
 
-    # Preprocessing text data for BERTopic
-    texts = data['Cleaned_Tweet_Content'].dropna().astype(str).tolist()
-    topics, _ = topic_model.fit_transform(texts)
+# --------------------
+# User Input for Sentiment Analysis (Persistent)
+# --------------------
+st.subheader("Enter a Tweet or Sentence for Sentiment Analysis")
 
-    data['Topic'] = topics
-    st.subheader("Topic Distribution")
-    topic_counts = data['Topic'].value_counts()
-    st.write(topic_counts)
+# Input box for user sentence (persistent across reruns)
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
 
-    # Topic Visualization
-    st.subheader("Topic Visualization")
-    fig = topic_model.visualize_topics()
-    st.pyplot(fig)
+user_input = st.text_input("Enter your tweet or sentence here:", value=st.session_state.user_input)
 
-    # Exporting Data to CSV
-    export_file = st.sidebar.button("Export Cleaned Data")
-    if export_file:
-        data.to_csv("cleaned_data_with_sentiment_and_topics.csv", index=False)
-        st.success("Data exported successfully!")
+if user_input:
+    # Save the user input to session state to persist it
+    st.session_state.user_input = user_input
 
-# Add a footer
-st.sidebar.markdown("Made with ❤️ by Streamlit")
+    # Classify the sentiment of the input sentence
+    sentiment = classify_sentiment(user_input)
+    
+    # Display the result
+    st.write(f"The sentiment of the input is: **{sentiment.capitalize()}**")
+
+# --------------------
+# Topic Modeling for New User Input (BERTopic)
+# --------------------
+st.subheader("Topic Modeling for Your Input (BERTopic)")
+
+# Allow user to input multiple sentences
+user_input_topic = st.text_area("Enter multiple sentences for Topic Modeling:")
+
+if user_input_topic:
+    # Apply BERTopic to the user's input
+    st.subheader("Generated Topics")
+
+    # Split input by new lines and apply BERTopic
+    topic_model, topics, topic_info = apply_bertopic(user_input_topic.split('\n'))
+
+    # Display Topics and the Top Words per Topic
+    st.write(topic_info)
+
+# --------------------
+# Sentiment and Topic Analysis (For Uploaded File)
+# --------------------
+if uploaded_file:
+    try:
+        # Load Data
+        data = pd.read_csv(uploaded_file)
+        st.write("Data Loaded Successfully", data.head())
+
+        # Check for required columns
+        required_cols = ['Cleaned_Tweet_Content', 'updated_sentiment']
+        missing = [c for c in required_cols if c not in data.columns]
+        if missing:
+            st.error(f"Missing columns in CSV: {missing}")
+            st.stop()
+
+        # WordCloud for Tweets
+        st.subheader("WordCloud of Tweets")
+        all_text = " ".join(data['Cleaned_Tweet_Content'].dropna().astype(str))
+        if all_text.strip():
+            wc = WordCloud(width=800, height=400, background_color='white').generate(all_text)
+            st.image(wc.to_image())
+
+        # Sentiment Distribution
+        st.subheader("Sentiment Distribution")
+        sentiment_counts = data['updated_sentiment'].value_counts()
+        st.write(sentiment_counts)
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.barplot(x=sentiment_counts.index, y=sentiment_counts.values, ax=ax, palette="viridis")
+        ax.set_title("Sentiment Distribution")
+        ax.set_xlabel("Sentiment")
+        ax.set_ylabel("Count")
+        st.pyplot(fig)
+
+        # Sentiment Classification using IndoBERT
+        # if 'Cleaned_Tweet_Content' in data.columns:
+        #     data['Sentiment_indobert'] = data['Cleaned_Tweet_Content'].apply(classify_sentiment)
+
+        # Apply BERTopic
+        if 'Cleaned_Tweet_Content' in data.columns:
+            st.subheader("Topic Modeling (BERTopic)")
+
+            # Apply BERTopic to the cleaned tweet content
+            topic_model, topics, topic_info = apply_bertopic(data['Cleaned_Tweet_Content'].dropna().astype(str).tolist())
+
+            # Display Topics and the Top Words per Topic
+            st.write(topic_info)
+
+            # Visualize Topic Distribution 
+            st.subheader("Topic Distribution")
+
+
+
+    except pd.errors.EmptyDataError:
+        st.error("The uploaded CSV is empty. Please check your file.")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
