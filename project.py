@@ -142,7 +142,7 @@ if uploaded_file:
             # Apply BERTopic to the cleaned tweet content
             topic_model, topics, topic_info = apply_bertopic(data['Cleaned_Tweet_Content'].dropna().astype(str).tolist())
 
-            filtered_topic_info = topic_info[(topic_info['Topic'] >= -1) & (topic_info['Topic'] <= 54)]
+            filtered_topic_info = topic_info[(topic_info['Topic'] >= 0) & (topic_info['Topic'] <= 54)]
 
             # Show the filtered topic table
             st.write(filtered_topic_info)
