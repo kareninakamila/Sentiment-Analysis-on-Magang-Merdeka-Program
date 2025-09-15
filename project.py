@@ -142,11 +142,28 @@ if uploaded_file:
             # Apply BERTopic to the cleaned tweet content
             topic_model, topics, topic_info = apply_bertopic(data['Cleaned_Tweet_Content'].dropna().astype(str).tolist())
 
-            # Display Topics and the Top Words per Topic
-            st.write(topic_info)
+            filtered_topic_info = topic_info[(topic_info['Topic'] >= -1) & (topic_info['Topic'] <= 54)]
+
+            # Show the filtered topic table
+            st.write(filtered_topic_info)
+            
+            #st.write(topic_info)
 
             # Visualize Topic Distribution 
             st.subheader("Topic Distribution")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.barplot(
+                data=filtered_topic_info,
+                x="Topic",
+                y="Count",
+                palette="viridis",
+                ax=ax
+            )
+            ax.set_title("Topic Distribution")
+            ax.set_xlabel("Topic")
+            ax.set_ylabel("Count")
+            plt.xticks(rotation=90)
+            st.pyplot(fig)
 
 
 
