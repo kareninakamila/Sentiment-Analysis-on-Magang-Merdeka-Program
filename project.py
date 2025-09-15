@@ -48,7 +48,7 @@ def classify_sentiment(tweet):
 def apply_bertopic(texts):
     # Initialize BERTopic and SentenceTransformer
     embedding_model = SentenceTransformer('xlm-r-bert-base-nli-stsb-mean-tokens')
-    topic_model = BERTopic(language="indonesia", embedding_model=embedding_model)
+    topic_model = BERTopic(language="indonesian", embedding_model=embedding_model)
     
     # Fit the model and transform the texts
     topics, probabilities = topic_model.fit_transform(texts)
